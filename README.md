@@ -1,5 +1,5 @@
 # better-graph-view
-Inspired by Roam graph overview and Obsidian graph view.
+A better local graph view for your note-taking jouney. Inspired by Roam graph overview and Obsidian graph view.
 
 Example 2D plot:
 
