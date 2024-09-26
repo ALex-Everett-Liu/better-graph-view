@@ -9,6 +9,7 @@ from heapq import nsmallest
 import os
 import shutil
 import random
+from graph_operations import get_graph_from_db
 
 def find_nearest_nodes(): 
     G = get_graph_from_db()

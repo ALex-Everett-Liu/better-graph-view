@@ -12,6 +12,8 @@ from heapq import nsmallest
 import os
 import shutil
 import random
+from graph_operations import get_graph_from_db
+from analysis import calculate_edge_statistics, calculate_node_metrics, display_metrics
 
 def plot_graph(): 
     G = get_graph_from_db()

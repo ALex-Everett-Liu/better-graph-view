@@ -1,4 +1,7 @@
 from database import initialize_database, DB_PATH
+from visualization import plot_graph, find_and_plot_multiple_nodes
+from analysis import calculate_edge_statistics, find_nearest_nodes
+from graph_operations import add_node_and_edges
 import tkinter as tk
 
 def main():

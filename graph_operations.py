@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import simpledialog, messagebox, font
 import sqlite3
+from database import DB_PATH
+import networkx as nx
 
 def add_node_and_edges():
     node_name = simpledialog.askstring("Input", "Enter the node name:")
