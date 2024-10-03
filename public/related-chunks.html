@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Related Chunks</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        form {
+            margin-bottom: 20px;
+        }
+        #results {
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>Find Related Chunks</h1>
+    <form id="chunkForm">
+        <label for="startChunk">Start Chunk:</label>
+        <input type="text" id="startChunk" name="startChunk" required>
+        <button type="submit">Find Related Chunks</button>
+    </form>
+    <div id="results"></div>
+
+    <script>
+        document.getElementById('chunkForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const startChunk = document.getElementById('startChunk').value;
+            fetch('/related-chunks', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `startChunk=${encodeURIComponent(startChunk)}`,
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultsDiv = document.getElementById('results');
+                resultsDiv.innerHTML = '<h2>Related Chunks:</h2>';
+                data.forEach(([chunk, weight]) => {
+                    resultsDiv.innerHTML += `${chunk}, ${weight}<br>`;
+                });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('results').innerHTML = 'An error occurred while processing your request.';
+            });
+        });
+    </script>
+</body>
+</html>
