@@ -1,15 +1,31 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
+const bodyParser = require('body-parser');
 const path = require('path');
+const PriorityQueue = require('priorityqueuejs'); // const PriorityQueue = require('./priorityQueue');
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
+// const port = 3001;
 
 // Assuming DB_PATH is the path to your SQLite database
 const DB_PATH = './graph_data.db';
 
 app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.json());
 app.use(express.static('public'));
+
+function getGraphFromDB(callback) {
+    const db = new sqlite3.Database(DB_PATH);
+    db.all("SELECT * FROM edges", (err, rows) => {
+        db.close();
+        if (err) {
+            callback(err, null);
+        } else {
+            callback(null, rows);
+        }
+    });
+}
 
 function getRelatedChunks(dbName, startChunk, maxDepth = 3) {
     return new Promise((resolve, reject) => {
@@ -69,6 +85,69 @@ function getRelatedChunks(dbName, startChunk, maxDepth = 3) {
 function sortRelatedChunks(related) {
     return Array.from(related.entries())
         .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+}
+
+function dijkstra(graph, start) {
+    const distances = {};
+    const pq = new PriorityQueue((a, b) => b[1] - a[1]);
+    
+    graph.forEach(edge => {
+        distances[edge.source] = Infinity;
+        distances[edge.target] = Infinity;
+    });
+    
+    distances[start] = 0;
+    pq.enq([start, 0]);
+    
+    while (!pq.isEmpty()) {
+        const [node, dist] = pq.deq();
+        
+        if (dist > distances[node]) continue;
+        
+        graph.forEach(edge => {
+            if (edge.source === node) {
+                const newDist = dist + edge.weight;
+                if (newDist < distances[edge.target]) {
+                    distances[edge.target] = newDist;
+                    pq.enq([edge.target, newDist]);
+                }
+            }
+        });
+    }
+    
+    return distances;
+}
+
+function calculateNodeMetrics(graph, centerNodes) {
+    const results = centerNodes.map(node => {
+        const distances = dijkstra(graph, node);
+        const sortedDistances = Object.entries(distances)
+            .filter(([n]) => n !== node)
+            .sort((a, b) => a[1] - b[1]);
+        
+        const connectedNodes = graph.filter(edge => edge.source === node || edge.target === node).length;
+        const avgDist5 = sortedDistances.slice(0, 5).reduce((sum, [, dist]) => sum + dist, 0) / Math.min(5, sortedDistances.length);
+        const avgDist10 = sortedDistances.slice(0, 10).reduce((sum, [, dist]) => sum + dist, 0) / Math.min(10, sortedDistances.length);
+        const avgDist20 = sortedDistances.slice(0, 20).reduce((sum, [, dist]) => sum + dist, 0) / Math.min(20, sortedDistances.length);
+        
+        return {
+            Node: node,
+            ConnectedNodes: connectedNodes,
+            Distance5: avgDist5,
+            Distance10: avgDist10,
+            Distance20: avgDist20
+        };
+    });
+    
+    return results;
+}
+
+function calculateEdgeStatistics(graph) {
+    const weights = graph.map(edge => edge.weight);
+    const average = weights.reduce((sum, weight) => sum + weight, 0) / weights.length;
+    const median = weights.sort((a, b) => a - b)[Math.floor(weights.length / 2)];
+    
+    return { average, median };
 }
 
 app.get('/', (req, res) => {
@@ -178,6 +257,70 @@ app.post('/add-node-and-edges', (req, res) => {
     db.close();
 });
 
+app.post('/nearest-nodes', (req, res) => {
+    const { node, n } = req.body;
+    getGraphFromDB((err, graph) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+
+        const distances = dijkstra(graph, node);
+        
+        // Sort distances and filter out unreachable nodes
+        const sortedDistances = Object.entries(distances)
+            .filter(([, distance]) => distance !== Infinity)
+            .sort((a, b) => a[1] - b[1]);
+
+        // Return all reachable nodes, up to n
+        const nearestNodes = sortedDistances.slice(0, n);
+        
+        res.json(nearestNodes);
+    });
+});
+
+// function findNearestNodes(graph, startNode, n = 30) {
+    // const distances = dijkstra(graph, startNode);
+    // return Object.entries(distances)
+        // .filter(([node]) => node !== startNode)
+        // .sort((a, b) => a[1] - b[1])
+        // .slice(0, n);
+// }
+
+app.post('/node-metrics', (req, res) => {
+    const { nodes } = req.body;
+    getGraphFromDB((err, graph) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error reading from database' });
+        }
+        const metrics = calculateNodeMetrics(graph, nodes);
+        res.json(metrics);
+    });
+});
+
+app.get('/edge-statistics', (req, res) => {
+    getGraphFromDB((err, graph) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error reading from database' });
+        }
+        const statistics = calculateEdgeStatistics(graph);
+        res.json(statistics);
+    });
+});
+
+app.get('/nearest-nodes.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'nearest-nodes.html'));
+});
+
+app.get('/node-metrics.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'node-metrics.html'));
+});
+
+app.get('/edge-statistics.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'edge-statistics.html'));
+});
+
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
+
+module.exports = app;
