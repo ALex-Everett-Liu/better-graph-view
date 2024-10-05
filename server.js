@@ -3,6 +3,9 @@ const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
 const path = require('path');
 const PriorityQueue = require('priorityqueuejs'); // const PriorityQueue = require('./priorityQueue');
+const Graph = require('graphology');
+const forceAtlas2 = require('graphology-layout-forceatlas2');
+const { createCanvas } = require('canvas');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -14,6 +17,7 @@ const DB_PATH = './graph_data.db';
 app.use(express.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(express.static('public'));
+app.use(express.json());
 
 function getGraphFromDB(callback) {
     const db = new sqlite3.Database(DB_PATH);
@@ -125,7 +129,7 @@ function calculateNodeMetrics(graph, centerNodes) {
             .filter(([n]) => n !== node)
             .sort((a, b) => a[1] - b[1]);
         
-        const connectedNodes = graph.filter(edge => edge.source === node || edge.target === node).length;
+        const connectedNodes = graph.filter(edge => edge.source === node || edge.target === node).length / 2;
         const avgDist5 = sortedDistances.slice(0, 5).reduce((sum, [, dist]) => sum + dist, 0) / Math.min(5, sortedDistances.length);
         const avgDist10 = sortedDistances.slice(0, 10).reduce((sum, [, dist]) => sum + dist, 0) / Math.min(10, sortedDistances.length);
         const avgDist20 = sortedDistances.slice(0, 20).reduce((sum, [, dist]) => sum + dist, 0) / Math.min(20, sortedDistances.length);
@@ -148,6 +152,91 @@ function calculateEdgeStatistics(graph) {
     const median = weights.sort((a, b) => a - b)[Math.floor(weights.length / 2)];
     
     return { average, median };
+}
+
+function plotCombinedLocalGraph(centerNodes, nearestNodes, callback) {
+    getGraphFromDB((err, edges) => {
+        if (err) {
+            callback(err, null);
+            return;
+        }
+
+        const G = new Graph();
+
+        // Add all nodes and edges
+        edges.forEach(edge => {
+            if (!G.hasNode(edge.source)) G.addNode(edge.source);
+            if (!G.hasNode(edge.target)) G.addNode(edge.target);
+            G.addEdge(edge.source, edge.target, { weight: edge.weight });
+        });
+
+        const localG = new Graph();
+
+        // Add center nodes and nearest nodes
+        centerNodes.forEach(node => localG.addNode(node));
+        nearestNodes.forEach(([node]) => localG.addNode(node));
+
+        // Add edges
+        centerNodes.forEach(centerNode => {
+            nearestNodes.forEach(([node]) => {
+                if (G.hasEdge(centerNode, node)) {
+                    localG.addEdge(centerNode, node, { weight: G.getEdgeAttribute(centerNode, node, 'weight') });
+                }
+            });
+        });
+
+        nearestNodes.forEach(([node]) => {
+            G.forEachNeighbor(node, (neighbor) => {
+                if (localG.hasNode(neighbor)) {
+                    localG.addEdge(node, neighbor, { weight: G.getEdgeAttribute(node, neighbor, 'weight') });
+                }
+            });
+        });
+
+        // Layout
+        const positions = forceAtlas2(localG, { iterations: 50, settings: { scalingRatio: 10 } });
+
+        // Draw
+        const canvas = createCanvas(800, 600);
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, 800, 600);
+
+        // Draw edges
+        ctx.strokeStyle = 'skyblue';
+        localG.forEachEdge((edge, attributes, source, target) => {
+            const sourcePos = positions[source];
+            const targetPos = positions[target];
+            ctx.beginPath();
+            ctx.moveTo(sourcePos.x, sourcePos.y);
+            ctx.lineTo(targetPos.x, targetPos.y);
+            ctx.stroke();
+
+            // Draw edge weight
+            const midX = (sourcePos.x + targetPos.x) / 2;
+            const midY = (sourcePos.y + targetPos.y) / 2;
+            ctx.fillStyle = 'steelblue';
+            ctx.font = '8px Arial';
+            ctx.fillText(attributes.weight.toFixed(2), midX, midY);
+        });
+
+        // Draw nodes
+        localG.forEachNode((node, attributes) => {
+            const pos = positions[node];
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = centerNodes.includes(node) ? '#d97706' : 'thistle';
+            ctx.fill();
+
+            // Draw node label
+            ctx.fillStyle = 'black';
+            ctx.font = '11px Arial';
+            ctx.fillText(node, pos.x + 6, pos.y + 6);
+        });
+
+        callback(null, canvas.toBuffer());
+    });
 }
 
 app.get('/', (req, res) => {
@@ -275,6 +364,45 @@ app.post('/nearest-nodes', (req, res) => {
         const nearestNodes = sortedDistances.slice(0, n);
         
         res.json(nearestNodes);
+    });
+});
+
+app.post('/nearest-nodes-graph', (req, res) => {
+    const { nodes } = req.body;
+    if (!Array.isArray(nodes) || nodes.length !== 5) {
+        return res.status(400).json({ error: 'Please provide exactly 5 nodes.' });
+    }
+
+    getGraphFromDB((err, edges) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+
+        const graph = edges;
+        const allNearestNodes = new Set();
+        const results = {};
+
+        nodes.forEach(node => {
+            const distances = dijkstra(graph, node);
+            const nearestNodes = Object.entries(distances)
+                .filter(([n]) => n !== node)
+                .sort((a, b) => a[1] - b[1])
+                .slice(0, 20);
+
+            results[node] = nearestNodes;
+            nearestNodes.forEach(([n]) => allNearestNodes.add(n));
+        });
+
+        plotCombinedLocalGraph(nodes, Array.from(allNearestNodes).map(n => [n]), (err, imageBuffer) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+
+            res.json({
+                results: results,
+                graph: imageBuffer.toString('base64')
+            });
+        });
     });
 });
 
