@@ -5,7 +5,7 @@ const path = require('path');
 const PriorityQueue = require('priorityqueuejs'); // const PriorityQueue = require('./priorityQueue');
 const Graph = require('graphology');
 const forceAtlas2 = require('graphology-layout-forceatlas2');
-const { createCanvas } = require('canvas');
+// const { createCanvas } = require('canvas');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -367,42 +367,56 @@ app.post('/nearest-nodes', (req, res) => {
     });
 });
 
-app.post('/nearest-nodes-graph', (req, res) => {
+app.post('/combined-graph', (req, res) => {
     const { nodes } = req.body;
-    if (!Array.isArray(nodes) || nodes.length !== 5) {
+    if (!nodes || nodes.length !== 5) {
         return res.status(400).json({ error: 'Please provide exactly 5 nodes.' });
     }
 
     getGraphFromDB((err, edges) => {
         if (err) {
-            return res.status(500).json({ error: err.message });
+            return res.status(500).json({ error: 'Database error' });
         }
 
-        const graph = edges;
-        const allNearestNodes = new Set();
-        const results = {};
+        const G = new Graph();
 
+        // Add all nodes and edges
+        edges.forEach(edge => {
+            if (!G.hasNode(edge.source)) G.addNode(edge.source);
+            if (!G.hasNode(edge.target)) G.addNode(edge.target);
+            G.addEdge(edge.source, edge.target, { weight: edge.weight });
+        });
+
+        const subgraph = new Graph();
+        const addedNodes = new Set();
+
+        // Add the 5 given nodes and their nearest neighbors
         nodes.forEach(node => {
-            const distances = dijkstra(graph, node);
-            const nearestNodes = Object.entries(distances)
-                .filter(([n]) => n !== node)
-                .sort((a, b) => a[1] - b[1])
-                .slice(0, 20);
+            if (G.hasNode(node)) {
+                subgraph.addNode(node);
+                addedNodes.add(node);
 
-            results[node] = nearestNodes;
-            nearestNodes.forEach(([n]) => allNearestNodes.add(n));
-        });
-
-        plotCombinedLocalGraph(nodes, Array.from(allNearestNodes).map(n => [n]), (err, imageBuffer) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
+                G.forEachNeighbor(node, (neighbor, attributes) => {
+                    if (!addedNodes.has(neighbor)) {
+                        subgraph.addNode(neighbor);
+                        addedNodes.add(neighbor);
+                    }
+                    subgraph.addEdge(node, neighbor, attributes);
+                });
             }
-
-            res.json({
-                results: results,
-                graph: imageBuffer.toString('base64')
-            });
         });
+
+        // Convert subgraph to JSON format suitable for D3
+        const graphData = {
+            nodes: Array.from(addedNodes).map(node => ({ id: node })),
+            links: subgraph.edges().map(edge => ({
+                source: subgraph.source(edge),
+                target: subgraph.target(edge),
+                weight: subgraph.getEdgeAttribute(edge, 'weight')
+            }))
+        };
+
+        res.json(graphData);
     });
 });
 
@@ -447,8 +461,12 @@ app.get('/edge-statistics.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'edge-statistics.html'));
 });
 
+
+
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
+
+// app.listen(3000, () => console.log('Server running on port 3000'));
 
 module.exports = app;

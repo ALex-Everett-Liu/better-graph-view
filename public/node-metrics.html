@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculate Node Metrics</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Calculate Node Metrics</h1>
+    <div>
+        <input type="text" id="nodeList" placeholder="Enter comma-separated node names">
+        <button onclick="calculateNodeMetrics()">Calculate Metrics</button>
+    </div>
+    <div id="results"></div>
+
+    <script>
+        async function calculateNodeMetrics() {
+            const nodeList = document.getElementById('nodeList').value.split(',').map(node => node.trim());
+            try {
+                const response = await axios.post('/node-metrics', { nodes: nodeList });
+                displayResults('Node Metrics', response.data);
+            } catch (error) {
+                alert('Error calculating node metrics: ' + error.message);
+            }
+        }
+
+        function displayResults(title, data) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `<h3>${title}</h3>`;
+            const table = document.createElement('table');
+            table.style.borderCollapse = 'collapse';
+            table.style.width = '100%';
+
+            // Create header
+            const header = table.createTHead();
+            const headerRow = header.insertRow();
+            for (const key in data[0]) {
+                const th = document.createElement('th');
+                th.textContent = key;
+                th.style.border = '1px solid black';
+                th.style.padding = '5px';
+                headerRow.appendChild(th);
+            }
+
+            // Create rows
+            const body = table.createTBody();
+            data.forEach(item => {
+                const row = body.insertRow();
+                for (const key in item) {
+                    const cell = row.insertCell();
+                    cell.textContent = typeof item[key] === 'number' ? item[key].toFixed(2) : item[key];
+                    cell.style.border = '1px solid black';
+                    cell.style.padding = '5px';
+                }
+            });
+
+            resultsDiv.appendChild(table);
+        }
+    </script>
+</body>
+</html>

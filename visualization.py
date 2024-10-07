@@ -12,153 +12,21 @@ from heapq import nsmallest
 import os
 import shutil
 import random
-from graph_operations import get_graph_from_db
-from analysis import calculate_edge_statistics, calculate_node_metrics, display_metrics
 
-def plot_graph(): 
-    G = get_graph_from_db()
-    pos = nx.spring_layout(G)
+DB_PATH = os.path.join(os.path.dirname(__file__), 'graph_data.db')
+
+def get_graph_from_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
     
-    edge_x = []
-    edge_y = []
-    for edge in G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
-
-    edge_trace = go.Scatter(
-        x=edge_x, y=edge_y,
-        line=dict(width=0.5, color='#888'),
-        hoverinfo='none',
-        mode='lines')
-
-    node_x = []
-    node_y = []
-    for node in G.nodes():
-        x, y = pos[node]
-        node_x.append(x)
-        node_y.append(y)
-
-    node_trace = go.Scatter(
-        x=node_x, y=node_y,
-        mode='markers+text',
-        hoverinfo='text',
-        marker=dict(
-            showscale=True,
-            colorscale='YlGnBu',
-            size=10,
-            colorbar=dict(
-                thickness=15,
-                title='Node Connections',
-                xanchor='left',
-                titleside='right'
-            )
-        ),
-        text=list(G.nodes()),
-        textposition="top center"
-    )
-
-    # Color node points by the number of connections
-    node_adjacencies = []
-    for node, adjacencies in G.adjacency():
-        node_adjacencies.append(len(adjacencies))
-
-    node_trace.marker.color = node_adjacencies
-    node_trace.marker.size = [min(20, 5 + v) for v in node_adjacencies]
-
-    fig = go.Figure(data=[edge_trace, node_trace],
-                    layout=go.Layout(
-                        title='Graph Visualization',
-                        titlefont_size=16,
-                        showlegend=False,
-                        hovermode='closest',
-                        margin=dict(b=20,l=5,r=5,t=40),
-                        annotations=[ dict(
-                            text="",
-                            showarrow=False,
-                            xref="paper", yref="paper",
-                            x=0.005, y=-0.002 ) ],
-                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
-                    )
-    fig.show()
-
-def plot_local_graph(center_node, nearest_nodes): 
-    G = get_graph_from_db()
-    local_G = nx.Graph()
+    G = nx.Graph()
     
-    for node, distance in nearest_nodes:
-        local_G.add_edge(center_node, node, weight=distance)
-        for neighbor in G.neighbors(node):
-            if neighbor in [n[0] for n in nearest_nodes] or neighbor == center_node:
-                local_G.add_edge(node, neighbor, weight=G[node][neighbor]['weight'])
+    c.execute("SELECT source, target, weight FROM edges")
+    for row in c.fetchall():
+        G.add_edge(row[0], row[1], weight=row[2])
     
-    pos = nx.spring_layout(local_G)
-    
-    edge_x = []
-    edge_y = []
-    for edge in local_G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
-
-    edge_trace = go.Scatter(
-        x=edge_x, y=edge_y,
-        line=dict(width=0.5, color='#888'),
-        hoverinfo='none',
-        mode='lines')
-
-    node_x = []
-    node_y = []
-    for node in local_G.nodes():
-        x, y = pos[node]
-        node_x.append(x)
-        node_y.append(y)
-
-    node_trace = go.Scatter(
-        x=node_x, y=node_y,
-        mode='markers+text',
-        hoverinfo='text',
-        marker=dict(
-            showscale=True,
-            colorscale='YlGnBu',
-            size=10,
-            colorbar=dict(
-                thickness=15,
-                title='Node Connections',
-                xanchor='left',
-                titleside='right'
-            )
-        ),
-        text=list(local_G.nodes()),
-        textposition="top center"
-    )
-
-    node_adjacencies = []
-    for node, adjacencies in local_G.adjacency():
-        node_adjacencies.append(len(adjacencies))
-
-    node_trace.marker.color = node_adjacencies
-    node_trace.marker.size = [30 if node == center_node else min(20, 5 + v) for node, v in zip(local_G.nodes(), node_adjacencies)]
-
-    fig = go.Figure(data=[edge_trace, node_trace],
-                    layout=go.Layout(
-                        title=f'Local Graph for {center_node}',
-                        titlefont_size=16,
-                        showlegend=False,
-                        hovermode='closest',
-                        margin=dict(b=20,l=5,r=5,t=40),
-                        annotations=[ dict(
-                            text="",
-                            showarrow=False,
-                            xref="paper", yref="paper",
-                            x=0.005, y=-0.002 ) ],
-                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
-                    )
-    fig.show()
+    conn.close()
+    return G 
 
 def plot_combined_local_graph(center_nodes, nearest_nodes):
     G = get_graph_from_db()
@@ -554,10 +422,10 @@ def find_and_plot_multiple_nodes(root):
     text_widget.config(state=tk.DISABLED)
     
     # Calculate the metrics for the selected nodes
-    df = calculate_node_metrics(G, nodes)
+    # df = calculate_node_metrics(G, nodes)
 
     # Display the table in the GUI
-    display_metrics(df)
+    # display_metrics(df)
 
     # Function to plot 2D graph and show coordinates
     def plot_2d_and_show_coords():

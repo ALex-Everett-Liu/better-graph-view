@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge Statistics</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Edge Statistics</h1>
+    <div>
+        <button onclick="getEdgeStatistics()">Get Edge Statistics</button>
+    </div>
+    <div id="results"></div>
+
+    <script>
+        async function getEdgeStatistics() {
+            try {
+                const response = await axios.get('/edge-statistics');
+                displayResults('Edge Statistics', response.data);
+            } catch (error) {
+                alert('Error getting edge statistics: ' + error.message);
+            }
+        }
+
+        function displayResults(title, data) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `<h3>${title}</h3>`;
+            const p = document.createElement('p');
+            p.innerHTML = `Average Edge Weight: ${data.average.toFixed(2)}<br>Median Edge Weight: ${data.median.toFixed(2)}`;
+            resultsDiv.appendChild(p);
+        }
+    </script>
+</body>
+</html>

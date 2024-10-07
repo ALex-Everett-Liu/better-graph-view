@@ -1,15 +1,25 @@
-from database import initialize_database, DB_PATH
-from visualization import plot_graph, find_and_plot_multiple_nodes
-from analysis import calculate_edge_statistics, find_nearest_nodes
-from graph_operations import add_node_and_edges
+from visualization import find_and_plot_multiple_nodes
 import tkinter as tk
+import os
+import sqlite3
+# from database import initialize_database, DB_PATH
+
+# Specify the database file path
+DB_PATH = os.path.join(os.path.dirname(__file__), 'graph_data.db')
+
+def connect_to_database():
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(f"Database file not found at {DB_PATH}")
+    conn = sqlite3.connect(DB_PATH)
+    return conn
 
 def main():
-    initialize_database()
+    conn = connect_to_database()
+    print(f"Connected to database at {DB_PATH}")
     
     root = tk.Tk()
     root.title("Graph Builder")
-    root.geometry("500x400")  # Set window size root.geometry("500x350")
+    root.geometry("500x200")  # Set window size root.geometry("500x350")
 
     style = {
         'font': ('Montserrat', 15),
@@ -19,22 +29,10 @@ def main():
         'fg': 'lightgreen',
     }
     
-    add_button = tk.Button(root, text="Add Node and Edges", command=add_node_and_edges, **style)
-    add_button.pack(pady=10)
-    
-    plot_button = tk.Button(root, text="Plot Graph", command=plot_graph, **style)
-    plot_button.pack(pady=10)
-    
-    nearest_button = tk.Button(root, text="Find Nearest Nodes", command=find_nearest_nodes, **style)
-    nearest_button.pack(pady=10)
-
     multiple_nodes_button = tk.Button(root, text="Compare 5 Nodes", command=lambda: find_and_plot_multiple_nodes(root), **style)
     multiple_nodes_button.pack(pady=10)
 
-    # Remove the separate button for printing coordinates, as it's now part of plot_combined_local_graph_2D_and_3D
-
-    stats_button = tk.Button(root, text="Calculate Edge Statistics", command=calculate_edge_statistics, **style)
-    stats_button.pack(pady=10)
+    conn.close()
     
     root.mainloop()
 
