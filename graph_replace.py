@@ -74,15 +74,15 @@ def clear_database(db_path):
     conn.close()
 
 def main():
-    db_path = 'graph_data.db'
+    db_path = r'Q:\coding-202409\better-graph-view\graph_data.db'
     
     # Example usage of replace_text_in_db
-    old_string = 'whitespace character \s \s'
-    new_string = 'whitespace character \s'
+    old_string = 'global flag'
+    new_string = 'global pattern flag'
     replace_text_in_db(db_path, old_string, new_string)
     
     # Example usage of clear_database
-    clear_database(db_path)
+    # clear_database(db_path)
 
 if __name__ == "__main__":
     main()

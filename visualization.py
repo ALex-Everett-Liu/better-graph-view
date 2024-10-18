@@ -12,6 +12,18 @@ from heapq import nsmallest
 import os
 import shutil
 import random
+import logging
+import sys
+
+# Set up logging
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.FileHandler("graph_visualization.log"),
+                        logging.StreamHandler(sys.stdout)
+                    ])
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'graph_data.db')
 
@@ -71,25 +83,43 @@ def adjust_node_position(pos, node, local_G, dx=None, dy=None):
         dx = random.uniform(-0.1, 0.1)
     if dy is None:
         dy = random.uniform(-0.1, 0.1)
-    pos[node] = (x + dx, y + dy)
+    new_x, new_y = x + dx, y + dy
+    pos[node] = (new_x, new_y)
+    logger.info(f"Adjusted position of node {node}: ({x:.4f}, {y:.4f}) -> ({new_x:.4f}, {new_y:.4f})")
 
-def adjust_for_crossing(pos, u1, v1, u2, v2, step=0.03, max_attempts=20):
+def count_crossings(graph, positions):
+    crossings = 0
+    edges = list(graph.edges())
+    for i in range(len(edges)):
+        for j in range(i + 1, len(edges)):
+            u1, v1 = edges[i]
+            u2, v2 = edges[j]
+            if line_intersection((*positions[u1], *positions[v1]), (*positions[u2], *positions[v2])):
+                crossings += 1
+    return crossings
+
+def adjust_for_crossing(pos, local_G, u1, v1, u2, v2, step=0.03, max_attempts=30):
     original_positions = {node: pos[node] for node in [u1, v1, u2, v2]}
+    initial_crossings = count_crossings(local_G, pos)
+    logger.info(f"Attempting to resolve crossing between edges ({u1}, {v1}) and ({u2}, {v2})")
+    logger.info(f"Initial crossings: {initial_crossings}")
     
-    for _ in range(max_attempts):
-        # Try small adjustments
+    for attempt in range(max_attempts):
+        logger.info(f"  Attempt {attempt + 1}/{max_attempts}")
         for node in [u1, v1, u2, v2]:
             x, y = pos[node]
             for dx, dy in [(step, 0), (-step, 0), (0, step), (0, -step)]:
                 pos[node] = (x + dx, y + dy)
-                if not line_intersection((*pos[u1], *pos[v1]), (*pos[u2], *pos[v2])):
-                    return True  # Crossing resolved
-            pos[node] = (x, y)  # Reset if not resolved
+                current_crossings = count_crossings(local_G, pos)
+                if current_crossings < initial_crossings:
+                    logger.info(f"  Crossing reduced by moving node {node}. New crossings: {current_crossings}")
+                    return True
+            pos[node] = (x, y)  # Reset if not improved
     
-    # If not resolved, revert to original positions
+    logger.info("  Failed to reduce crossings")
     for node, position in original_positions.items():
         pos[node] = position
-    return False  # Couldn't resolve crossing
+    return False
 
 def nodes_too_close(pos, node1, node2, threshold=0.1):
     x1, y1 = pos[node1]
@@ -101,7 +131,64 @@ def node_distance(pos, node1, node2):
     x2, y2 = pos[node2]
     return ((x1 - x2)**2 + (y1 - y2)**2)**0.5
 
+def resolve_crossings_by_random_position(local_G, pos, max_nodes=10):
+    logger.info("Starting resolve_crossings_by_random_position")
+    
+    initial_crossings = count_crossings(local_G, pos)
+    logger.info(f"Initial number of crossings: {initial_crossings}")
+
+    node_crossings = {node: 0 for node in local_G.nodes()}
+    edges = list(local_G.edges())
+    
+    for i in range(len(edges)):
+        for j in range(i + 1, len(edges)):
+            u1, v1 = edges[i]
+            u2, v2 = edges[j]
+            if line_intersection((*pos[u1], *pos[v1]), (*pos[u2], *pos[v2])):
+                node_crossings[u1] += 1
+                node_crossings[v1] += 1
+                node_crossings[u2] += 1
+                node_crossings[v2] += 1
+
+    sorted_nodes = sorted(node_crossings.items(), key=lambda x: x[1], reverse=True)
+    logger.info(f"Nodes sorted by crossing count: {sorted_nodes}")
+    
+    for node, crossing_count in sorted_nodes[:max_nodes]:
+        logger.info(f"Attempting to resolve crossings for node {node} (crossing count: {crossing_count})")
+        original_position = pos[node]
+        best_position = original_position
+        best_crossings = initial_crossings
+
+        for attempt in range(20):
+            adjust_node_position(pos, node, local_G)
+            
+            current_crossings = count_crossings(local_G, pos)
+            
+            if current_crossings < best_crossings:
+                best_crossings = current_crossings
+                best_position = pos[node]
+                logger.info(f"  Improved position found for node {node}. Crossings reduced to {best_crossings}")
+                
+                if best_crossings == 0:
+                    logger.info(f"  All crossings resolved for node {node} after {attempt + 1} attempts")
+                    break
+        
+        # Fix: Compare the positions element-wise
+        if not np.allclose(best_position, original_position):
+            logger.info(f"  Using improved position for node {node}. Crossings reduced from {initial_crossings} to {best_crossings}")
+            pos[node] = best_position
+        else:
+            logger.info(f"  No improvement found for node {node}, keeping original position")
+
+    final_crossings = count_crossings(local_G, pos)
+    logger.info(f"Final number of crossings: {final_crossings}")
+    improvement = initial_crossings - final_crossings
+    logger.info(f"Total improvement: {improvement} crossings resolved")
+
+    return pos
+
 def plot_combined_local_graph_2D(center_nodes, nearest_nodes, layout_type='spring', layout_params=None, skip_crossing_checks=False):
+    logger.info("Starting plot_combined_local_graph_2D")
     local_G = plot_combined_local_graph(center_nodes, nearest_nodes)
 
     # Create a grid-based initial position
@@ -134,7 +221,7 @@ def plot_combined_local_graph_2D(center_nodes, nearest_nodes, layout_type='sprin
 
     if not skip_crossing_checks:
         # Initialize variables
-        max_iterations = 50
+        max_iterations = 5
         iteration_count = 0
 
         # Check for edge crossings
@@ -145,10 +232,8 @@ def plot_combined_local_graph_2D(center_nodes, nearest_nodes, layout_type='sprin
                 for j in range(i + 1, len(edges)):
                     u1, v1 = edges[i]
                     u2, v2 = edges[j]
-                    line1 = (*pos[u1], *pos[v1])
-                    line2 = (*pos[u2], *pos[v2])
-                    if line_intersection(line1, line2):
-                        adjustments_made = adjust_for_crossing(pos, u1, v1, u2, v2) or adjustments_made
+                    if line_intersection((*pos[u1], *pos[v1]), (*pos[u2], *pos[v2])):
+                        adjustments_made = adjust_for_crossing(pos, local_G, u1, v1, u2, v2) or adjustments_made
 
             iteration_count += 1
 
@@ -156,12 +241,12 @@ def plot_combined_local_graph_2D(center_nodes, nearest_nodes, layout_type='sprin
                 break  # Exit the loop if no adjustments were made
 
         if iteration_count == max_iterations:
-            print(f"Warning: Maximum iterations ({max_iterations}) reached. Some edge crossings may remain.")
+            logger.info(f"Warning: Maximum iterations ({max_iterations}) reached. Some edge crossings may remain.")
 
         # Detect and resolve edge crossings
         edges = list(local_G.edges())
         nodes = list(local_G.nodes())
-        max_iterations = 50
+        max_iterations = 30
         for _ in range(max_iterations):
             # crossings_found = False
             close_nodes_found = False
@@ -202,8 +287,45 @@ def plot_combined_local_graph_2D(center_nodes, nearest_nodes, layout_type='sprin
                     adjust_node_position(pos, u, local_G, dx, dy)
                     adjust_node_position(pos, v, local_G, -dx, -dy)
 
-            if not (close_nodes_found): # if not (crossings_found or close_nodes_found):
+            if not close_nodes_found:
                 break
+    
+        # Resolve crossings by random position adjustment
+        pos = resolve_crossings_by_random_position(local_G, pos)
+
+        # Additional step: Adjust node positions one more time
+        logger.info("Performing final node position adjustments")
+        for _ in range(10):  # Repeat the process a few times for better results
+            adjustments_made = False
+            for u, v in local_G.edges():
+                weight = local_G[u][v]['weight']
+                distance = node_distance(pos, u, v)
+                
+                if weight > 7 and distance < 0.4:
+                    adjustments_made = True
+                    # Push nodes apart
+                    x1, y1 = pos[u]
+                    x2, y2 = pos[v]
+                    dx = 0.05 if x2 > x1 else -0.05
+                    dy = 0.05 if y2 > y1 else -0.05
+                    adjust_node_position(pos, u, local_G, -dx, -dy)
+                    adjust_node_position(pos, v, local_G, dx, dy)
+                elif weight < 3 and distance > 0.4:
+                    adjustments_made = True
+                    # Pull nodes closer
+                    x1, y1 = pos[u]
+                    x2, y2 = pos[v]
+                    dx = 0.02 if x2 > x1 else -0.02
+                    dy = 0.02 if y2 > y1 else -0.02
+                    adjust_node_position(pos, u, local_G, dx, dy)
+                    adjust_node_position(pos, v, local_G, -dx, -dy)
+            
+            if not adjustments_made:
+                break
+
+        # Final small adjustment for all nodes
+        for node in local_G.nodes():
+            adjust_node_position(pos, node, local_G, dx=random.uniform(-0.02, 0.02), dy=random.uniform(-0.02, 0.02))
     
     # Get edge weights
     edge_weights = [local_G[u][v]['weight'] for u, v in local_G.edges()]
@@ -430,6 +552,7 @@ def find_and_plot_multiple_nodes(root):
     # Function to plot 2D graph and show coordinates
     def plot_2d_and_show_coords():
         global node_coordinates_2d, local_G
+        # node_coordinates_2d, local_G = plot_combined_local_graph_2D(nodes, list(all_nearest_nodes), 'spring')
         node_coordinates_2d, local_G = plot_combined_local_graph_2D(nodes, list(all_nearest_nodes), 'spring_grid', {'k': 0.7, 'iterations': 50})
         
         # Create buttons for showing coordinates and adjusting them
