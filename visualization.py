@@ -98,28 +98,62 @@ def count_crossings(graph, positions):
                 crossings += 1
     return crossings
 
-def adjust_for_crossing(pos, local_G, u1, v1, u2, v2, step=0.03, max_attempts=30):
-    original_positions = {node: pos[node] for node in [u1, v1, u2, v2]}
-    initial_crossings = count_crossings(local_G, pos)
-    logger.info(f"Attempting to resolve crossing between edges ({u1}, {v1}) and ({u2}, {v2})")
-    logger.info(f"Initial crossings: {initial_crossings}")
+def adjust_for_crossing(pos, local_G, max_nodes=20, step=0.2, max_attempts=20):
+    logger.info("Starting adjust_for_crossing")
     
-    for attempt in range(max_attempts):
-        logger.info(f"  Attempt {attempt + 1}/{max_attempts}")
-        for node in [u1, v1, u2, v2]:
+    initial_crossings = count_crossings(local_G, pos)
+    logger.info(f"Initial number of crossings: {initial_crossings}")
+
+    node_crossings = {node: 0 for node in local_G.nodes()}
+    edges = list(local_G.edges())
+    
+    for i in range(len(edges)):
+        for j in range(i + 1, len(edges)):
+            u1, v1 = edges[i]
+            u2, v2 = edges[j]
+            if line_intersection((*pos[u1], *pos[v1]), (*pos[u2], *pos[v2])):
+                node_crossings[u1] += 1
+                node_crossings[v1] += 1
+                node_crossings[u2] += 1
+                node_crossings[v2] += 1
+
+    sorted_nodes = sorted(node_crossings.items(), key=lambda x: x[1], reverse=True)
+    logger.info(f"Nodes sorted by crossing count: {sorted_nodes[:max_nodes]}")
+    
+    for node, crossing_count in sorted_nodes[:max_nodes]:
+        logger.info(f"Attempting to resolve crossings for node {node} (crossing count: {crossing_count})")
+        original_position = pos[node]
+        best_position = original_position
+        best_crossings = initial_crossings
+
+        for attempt in range(max_attempts):
             x, y = pos[node]
             for dx, dy in [(step, 0), (-step, 0), (0, step), (0, -step)]:
                 pos[node] = (x + dx, y + dy)
                 current_crossings = count_crossings(local_G, pos)
-                if current_crossings < initial_crossings:
-                    logger.info(f"  Crossing reduced by moving node {node}. New crossings: {current_crossings}")
-                    return True
+                if current_crossings < best_crossings:
+                    best_crossings = current_crossings
+                    best_position = pos[node]
+                    logger.info(f"  Improved position found for node {node}. Crossings reduced to {best_crossings}")
+                    
+                    if best_crossings == 0:
+                        logger.info(f"  All crossings resolved for node {node} after {attempt + 1} attempts")
+                        return True
             pos[node] = (x, y)  # Reset if not improved
-    
-    logger.info("  Failed to reduce crossings")
-    for node, position in original_positions.items():
-        pos[node] = position
-    return False
+        
+        if not np.allclose(best_position, original_position):
+            logger.info(f"  Using improved position for node {node}. Crossings reduced from {initial_crossings} to {best_crossings}")
+            pos[node] = best_position
+            return True
+        else:
+            logger.info(f"  No improvement found for node {node}, keeping original position")
+
+    final_crossings = count_crossings(local_G, pos)
+    logger.info(f"Final number of crossings: {final_crossings}")
+    improvement = initial_crossings - final_crossings
+    logger.info(f"Total improvement: {improvement} crossings resolved")
+
+    return improvement > 0
 
 def nodes_too_close(pos, node1, node2, threshold=0.1):
     x1, y1 = pos[node1]
@@ -131,7 +165,7 @@ def node_distance(pos, node1, node2):
     x2, y2 = pos[node2]
     return ((x1 - x2)**2 + (y1 - y2)**2)**0.5
 
-def resolve_crossings_by_random_position(local_G, pos, max_nodes=10):
+def resolve_crossings_by_random_position(local_G, pos, max_nodes=20):
     logger.info("Starting resolve_crossings_by_random_position")
     
     initial_crossings = count_crossings(local_G, pos)
@@ -221,20 +255,12 @@ def plot_combined_local_graph_2D(center_nodes, nearest_nodes, layout_type='sprin
 
     if not skip_crossing_checks:
         # Initialize variables
-        max_iterations = 5
+        max_iterations = 20
         iteration_count = 0
 
         # Check for edge crossings
         while iteration_count < max_iterations:
-            adjustments_made = False
-            edges = list(local_G.edges())
-            for i in range(len(edges)):
-                for j in range(i + 1, len(edges)):
-                    u1, v1 = edges[i]
-                    u2, v2 = edges[j]
-                    if line_intersection((*pos[u1], *pos[v1]), (*pos[u2], *pos[v2])):
-                        adjustments_made = adjust_for_crossing(pos, local_G, u1, v1, u2, v2) or adjustments_made
-
+            adjustments_made = adjust_for_crossing(pos, local_G)
             iteration_count += 1
 
             if not adjustments_made:
@@ -259,8 +285,8 @@ def plot_combined_local_graph_2D(center_nodes, nearest_nodes, layout_type='sprin
                         # Push one node away from the other
                         x1, y1 = pos[nodes[i]]
                         x2, y2 = pos[nodes[j]]
-                        dx = 0.02 if x2 > x1 else -0.02
-                        dy = 0.02 if y2 > y1 else -0.02
+                        dx = 0.05 if x2 > x1 else -0.05 #dx = 0.02 if x2 > x1 else -0.02
+                        dy = 0.05 if y2 > y1 else -0.05
                         adjust_node_position(pos, nodes[j], local_G, dx, dy)
             
             # Check edge weights and node distances
@@ -295,7 +321,7 @@ def plot_combined_local_graph_2D(center_nodes, nearest_nodes, layout_type='sprin
 
         # Additional step: Adjust node positions one more time
         logger.info("Performing final node position adjustments")
-        for _ in range(10):  # Repeat the process a few times for better results
+        for _ in range(20):  # Repeat the process a few times for better results
             adjustments_made = False
             for u, v in local_G.edges():
                 weight = local_G[u][v]['weight']
@@ -535,7 +561,7 @@ def find_and_plot_multiple_nodes(root):
     # Create the result window
     result_window = tk.Toplevel(root)
     result_window.title("Nearest Nodes Results")
-    result_window.geometry("600x900")
+    result_window.geometry("600x700") #result_window.geometry("600x900")
     
     # Display results
     text_widget = tk.Text(result_window, font=("Lato", 12), wrap=tk.WORD)
