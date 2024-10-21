@@ -4,6 +4,7 @@ import sqlite3
 import networkx as nx
 import plotly.graph_objects as go
 import plotly.io as pio
+from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -521,6 +522,88 @@ def plot_combined_local_graph_3D(center_nodes, nearest_nodes):
     # Show the 3D plot
     pio.show(fig)
 
+def plot_interactive_graph(local_G, pos, center_nodes):
+    # Create edge traces
+    edge_traces = []
+    for edge in local_G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        weight = local_G[edge[0]][edge[1]]['weight']
+        
+        edge_trace = go.Scatter(
+            x=[x0, x1, None], y=[y0, y1, None],
+            line=dict(width=weight, color='#888'),
+            hoverinfo='none',
+            mode='lines')
+        
+        edge_traces.append(edge_trace)
+    
+    # Create node trace
+    node_x = []
+    node_y = []
+    for node in local_G.nodes():
+        x, y = pos[node]
+        node_x.append(x)
+        node_y.append(y)
+
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers+text',
+        hoverinfo='text',
+        marker=dict(
+            showscale=True,
+            colorscale='YlGnBu',
+            size=10,
+            colorbar=dict(
+                thickness=15,
+                title='Node Connections',
+                xanchor='left',
+                titleside='right'
+            ),
+            line_width=2),
+        text=[node for node in local_G.nodes()],
+        textposition="top center"
+    )
+
+    # Color node points by the number of connections
+    node_adjacencies = []
+    for node, adjacencies in enumerate(local_G.adjacency()):
+        node_adjacencies.append(len(adjacencies[1]))
+
+    node_trace.marker.color = node_adjacencies
+    node_trace.marker.size = [5 + v * 2 for v in node_adjacencies]
+    node_trace.marker.line.width = [2 if node in center_nodes else 1 for node in local_G.nodes()]
+    node_trace.marker.line.color = ['red' if node in center_nodes else '#555' for node in local_G.nodes()]
+
+    # Create the figure
+    fig = go.Figure(data=edge_traces + [node_trace],
+                    layout=go.Layout(
+                        title='Interactive Graph',
+                        titlefont_size=16,
+                        showlegend=False,
+                        hovermode='closest',
+                        margin=dict(b=20,l=5,r=5,t=40),
+                        annotations=[ dict(
+                            text="",
+                            showarrow=False,
+                            xref="paper", yref="paper",
+                            x=0.005, y=-0.002 ) ],
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                    )
+
+    # Update layout for interactivity
+    fig.update_layout(
+        dragmode='pan',  # Allow panning
+        clickmode='event+select'  # Allow selecting nodes
+    )
+
+    # Make nodes draggable
+    fig.update_traces(marker=dict(size=10), selector=dict(mode='markers+text'))
+
+    # Show the plot
+    fig.show()
+
 def find_and_plot_multiple_nodes(root):
     global nodes, all_nearest_nodes, node_coordinates_2d, local_G
     G = get_graph_from_db()
@@ -580,7 +663,7 @@ def find_and_plot_multiple_nodes(root):
         global node_coordinates_2d, local_G
         # node_coordinates_2d, local_G = plot_combined_local_graph_2D(nodes, list(all_nearest_nodes), 'spring')
         node_coordinates_2d, local_G = plot_combined_local_graph_2D(nodes, list(all_nearest_nodes), 'spring_grid', {'k': 0.7, 'iterations': 50})
-        
+
         # Create buttons for showing coordinates and adjusting them
         show_coords_button = tk.Button(button_frame, text="Show 2D Coordinates", 
                                        command=lambda: show_2d_coordinates(node_coordinates_2d))
@@ -604,14 +687,28 @@ def find_and_plot_multiple_nodes(root):
         
         text_widget.config(state=tk.DISABLED)
 
+    def get_graph_data():
+        global node_coordinates_2d, local_G
+        node_coordinates_2d, local_G = plot_combined_local_graph_2D(nodes, list(all_nearest_nodes), 'spring_grid', {'k': 0.7, 'iterations': 50})
+        return node_coordinates_2d, local_G
+
+    # Wrapper function for plot_interactive_graph
+    def plot_interactive_wrapper():
+        node_coordinates_2d, local_G = get_graph_data()
+        plot_interactive_graph(local_G, node_coordinates_2d, nodes)
+
     # Create buttons for different actions
     button_frame = tk.Frame(result_window)
     button_frame.pack(pady=10)
 
-    plot_2d_button = tk.Button(button_frame, text="Plot 2D Graph", command=plot_2d_and_show_coords)
+    plot_2d_button = tk.Button(button_frame, text="Plot Matplotlib 2D Graph", command=plot_2d_and_show_coords)
     plot_2d_button.pack(side=tk.LEFT, padx=5)
 
-    plot_3d_button = tk.Button(button_frame, text="Plot 3D Graph", 
+    plot_interactive_button = tk.Button(button_frame, text="Plot Poltly 2D Graph", 
+                                        command=plot_interactive_wrapper)
+    plot_interactive_button.pack(side=tk.LEFT, padx=5)
+
+    plot_3d_button = tk.Button(button_frame, text="Plot Poltly 3D Graph", 
                                command=lambda: plot_combined_local_graph_3D(nodes, list(all_nearest_nodes)))
     plot_3d_button.pack(side=tk.LEFT, padx=5)
 
@@ -630,3 +727,4 @@ def show_coordinates(node_coordinates):
         text_widget.insert(tk.END, f"{node}: {coord}\n")
     
     text_widget.config(state=tk.DISABLED)
+

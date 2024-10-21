@@ -3,115 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Graph Visualization</title>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <title>Combined Graph Visualization</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.21.1/cytoscape.min.js"></script>
     <style>
-        .links line {
-            stroke: #999;
-            stroke-opacity: 0.6;
-        }
-        .nodes circle {
-            stroke: #fff;
-            stroke-width: 1.5px;
+        #cy {
+            width: 100%;
+            height: 900px;
+            display: block;
         }
     </style>
 </head>
 <body>
-    <h1>Graph Visualization</h1>
+    <h1>Combined Graph Visualization</h1>
     <input type="text" id="nodeInput" placeholder="Enter 5 nodes (comma-separated)">
-    <button onclick="combinedGraph()">Plot</button>
-    <div id="results"></div>
-    <svg width="1200" height="700"></svg>
+    <button onclick="visualizeGraph()">Visualize Graph</button>
+    <div id="cy"></div>
 
     <script>
-        async function combinedGraph() {
-            const nodeInput = document.getElementById('nodeInput').value;
-            const nodes = nodeInput.split(',').map(n => n.trim());
-
+        function visualizeGraph() {
+            const nodes = document.getElementById('nodeInput').value.split(',').map(n => n.trim());
             if (nodes.length !== 5) {
                 alert('Please enter exactly 5 nodes.');
                 return;
             }
 
-            const response = await fetch('/combined-graph', {
+            fetch('/combined-graph', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ nodes }),
+                body: JSON.stringify({nodes: nodes}),
+            })
+            .then(response => response.json())
+            .then(data => {
+                const cy = cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: data,
+                    style: [
+                        {
+                            selector: 'node',
+                            style: {
+                                'background-color': '#666',
+                                'label': 'data(label)'
+                            }
+                        },
+                        {
+                            selector: 'node.center-node',
+                            style: {
+                                'background-color': '#d97706',
+                                'width': 30,
+                                'height': 30
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'width': 'data(weight)',
+                                'line-color': '#ccc',
+                                'target-arrow-color': '#ccc',
+                                'target-arrow-shape': 'triangle',
+                                'curve-style': 'bezier',
+                                'label': 'data(weight)'
+                            }
+                        }
+                    ],
+                    layout: {
+                        name: 'grid',
+                        rows: undefined,
+                        cols: undefined,
+                        position: function(node) {
+                            return { row: node.data('row'), col: node.data('col') };
+                        },
+                        fit: true,
+                        padding: 30,
+                        avoidOverlap: true,
+                        avoidOverlapPadding: 10,
+                        condense: false,
+                        animate: true,
+                        animationDuration: 500
+                    }
+                });
+
+                cy.on('tap', 'node', function(evt){
+                    var node = evt.target;
+                    console.log('tapped ' + node.id());
+                });
+
+                cy.on('dragfree', 'node', function(evt){
+                    var node = evt.target;
+                    console.log('dragged ' + node.id() + ' to ' + node.position().x + ', ' + node.position().y);
+                });
             });
-
-            const data = await response.json();
-            if (data.error) {
-                alert(data.error);
-                return;
-            }
-
-            renderGraph(data, nodes);
-        }
-
-        function renderGraph(data, inputNodes) {
-            d3.select("svg").selectAll("*").remove();
-
-            const svg = d3.select("svg"),
-                width = +svg.attr("width"),
-                height = +svg.attr("height");
-
-            const simulation = d3.forceSimulation(data.nodes)
-                .force("link", d3.forceLink(data.links).id(d => d.id).distance(100))
-                .force("charge", d3.forceManyBody().strength(-300))
-                .force("center", d3.forceCenter(width / 2, height / 2));
-
-            const link = svg.append("g")
-                .attr("class", "links")
-                .selectAll("line")
-                .data(data.links)
-                .enter().append("line")
-                .attr("stroke-width", d => Math.sqrt(d.weight));
-
-            const node = svg.append("g")
-                .attr("class", "nodes")
-                .selectAll("circle")
-                .data(data.nodes)
-                .enter().append("circle")
-                .attr("r", 5)
-                .attr("fill", d => inputNodes.includes(d.id) ? "#ff0000" : "#1f77b4")
-                .call(d3.drag()
-                    .on("start", dragstarted)
-                    .on("drag", dragged)
-                    .on("end", dragended));
-
-            node.append("title")
-                .text(d => d.id);
-
-            simulation.on("tick", () => {
-                link
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
-
-                node
-                    .attr("cx", d => d.x)
-                    .attr("cy", d => d.y);
-            });
-
-            function dragstarted(event) {
-                if (!event.active) simulation.alphaTarget(0.3).restart();
-                event.subject.fx = event.subject.x;
-                event.subject.fy = event.subject.y;
-            }
-
-            function dragged(event) {
-                event.subject.fx = event.x;
-                event.subject.fy = event.y;
-            }
-
-            function dragended(event) {
-                if (!event.active) simulation.alphaTarget(0);
-                event.subject.fx = null;
-                event.subject.fy = null;
-            }
         }
     </script>
 </body>

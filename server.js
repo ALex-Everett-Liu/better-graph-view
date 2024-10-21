@@ -384,35 +384,72 @@ app.post('/combined-graph', (req, res) => {
         edges.forEach(edge => {
             if (!G.hasNode(edge.source)) G.addNode(edge.source);
             if (!G.hasNode(edge.target)) G.addNode(edge.target);
-            G.addEdge(edge.source, edge.target, { weight: edge.weight });
+            // Check if the edge already exists before adding it
+            if (!G.hasEdge(edge.source, edge.target)) {
+                G.addEdge(edge.source, edge.target, { weight: edge.weight });
+            }
         });
 
         const subgraph = new Graph();
         const addedNodes = new Set();
 
+        // Function to get nearest nodes
+        function getNearestNodes(startNode, n = 20) {
+            const distances = dijkstra(edges, startNode);
+            return Object.entries(distances)
+                .filter(([node, distance]) => node !== startNode && distance !== Infinity)
+                .sort((a, b) => a[1] - b[1])
+                .slice(0, n);
+        }
+
+        // Log nearest neighbors for each given node
+        console.log("Nearest neighbors for given nodes:");
+        nodes.forEach(node => {
+            const nearestNodes = getNearestNodes(node);
+            console.log(`${node}: ${nearestNodes.map(([n]) => n).join(', ')}`);
+        });
+
         // Add the 5 given nodes and their nearest neighbors
         nodes.forEach(node => {
             if (G.hasNode(node)) {
-                subgraph.addNode(node);
-                addedNodes.add(node);
+                if (!subgraph.hasNode(node)) {
+                    subgraph.addNode(node);
+                    addedNodes.add(node);
+                }
 
-                G.forEachNeighbor(node, (neighbor, attributes) => {
+                const nearestNodes = getNearestNodes(node);
+                nearestNodes.forEach(([neighbor, distance]) => {
                     if (!addedNodes.has(neighbor)) {
                         subgraph.addNode(neighbor);
                         addedNodes.add(neighbor);
                     }
-                    subgraph.addEdge(node, neighbor, attributes);
+                    if (!subgraph.hasEdge(node, neighbor)) {
+                        let weight = distance;
+                        if (G.hasEdge(node, neighbor)) {
+                            weight = G.getEdgeAttribute(node, neighbor, 'weight');
+                        }
+                        subgraph.addEdge(node, neighbor, { weight });
+                    }
                 });
             }
         });
 
-        // Convert subgraph to JSON format suitable for D3
+        // Log all nodes in the final subgraph
+        console.log("All nodes in the final subgraph:");
+        console.log(Array.from(addedNodes).join(', '));
+
+        // Convert subgraph to JSON format suitable for Cytoscape.js
         const graphData = {
-            nodes: Array.from(addedNodes).map(node => ({ id: node })),
-            links: subgraph.edges().map(edge => ({
-                source: subgraph.source(edge),
-                target: subgraph.target(edge),
-                weight: subgraph.getEdgeAttribute(edge, 'weight')
+            nodes: Array.from(addedNodes).map(node => ({ 
+                data: { id: node, label: node },
+                classes: nodes.includes(node) ? 'center-node' : 'nearest-node'
+            })),
+            edges: subgraph.edges().map(edge => ({
+                data: {
+                    source: subgraph.source(edge),
+                    target: subgraph.target(edge),
+                    weight: subgraph.getEdgeAttribute(edge, 'weight')
+                }
             }))
         };
 
